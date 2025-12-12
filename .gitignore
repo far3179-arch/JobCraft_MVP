@@ -1,0 +1,7 @@
+# Credenciales de Google Service Account (MUY IMPORTANTE NUNCA SUBIR ESTE ARCHIVO)
+credentials.json
+
+# Otros archivos comunes a ignorar
+*.pyc
+__pycache__/
+.env
