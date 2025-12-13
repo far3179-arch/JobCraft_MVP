@@ -23,13 +23,12 @@ class JobDescription(BaseModel):
 # =========================================================
 # CONFIGURACIÓN DE GOOGLE SHEETS
 # =========================================================
-# ¡AJUSTA ESTO! Reemplaza 'jobcraft-sheets-api-a8e30825c2cd.json' con el ID real de tu hoja de competencias
-GOOGLE_SHEET_ID = "TU_SHEET_ID_AQUÍ"
-# Nombre del archivo de credenciales (debe coincidir con el nombre del archivo local)
-CREDENTIALS_FILE = "credentials.json"
+# ⚠️ AJUSTE OBLIGATORIO: Reemplaza 'TU_SHEET_ID_AQUÍ' con el ID real de tu hoja
+GOOGLE_SHEET_ID = "AIzaSyAXPGgR5vposP7z-pIkyR89s0ksd27yk8o"
+# Ya NO se define CREDENTIALS_FILE porque se lee desde st.secrets
 
 # =========================================================
-# 2. FUNCIÓN DE CONEXIÓN A GOOGLE SHEETS
+# 2. FUNCIÓN DE CONEXIÓN A GOOGLE SHEETS (VERSION FINAL PARA CLOUD)
 # =========================================================
 
 @st.cache_data(ttl=3600) # Cachea los datos por 1 hora
@@ -37,8 +36,8 @@ def get_competencias(worksheet_name: str = "Diccionario Competencias"):
     """Lee y devuelve los datos del diccionario de competencias desde Google Sheets."""
     
     try:
-        # Nota: gspread leerá las credenciales desde secrets.toml en la nube
-        gc = gspread.service_account(filename=CREDENTIALS_FILE)
+        # ✅ CORRECCIÓN CLAVE: Usamos st.secrets para leer las credenciales del archivo TOML
+        gc = gspread.service_account_from_dict(st.secrets["gspread"]["gcp_service_account_credentials"]) 
         
         spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
         worksheet = spreadsheet.worksheet(worksheet_name)
@@ -49,7 +48,6 @@ def get_competencias(worksheet_name: str = "Diccionario Competencias"):
         return df, None
         
     except Exception as e:
-        # Devuelve un mensaje de error útil si falla la conexión
         return None, f"Error de conexión con Google Sheets. Verifica: 1) ID de la hoja; 2) Que la cuenta de servicio tenga acceso (Lector); 3) Credenciales configuradas en Streamlit Cloud. Detalle: {e}"
 
 
@@ -92,22 +90,6 @@ def run_jobcraft_ai(api_key: str, title: str, level: str, critical_skill: str, c
         * **Formato de Salida:** Respeta estrictamente el esquema JSON.
     """
     
-    # ... (El código continúa con la llamada a la API, pero nos detenemos aquí
-    # ya que la parte principal de la interfaz y la lógica de Sheets está arriba.
-    # Si la vez anterior te di el resto del código, pégalo también.
-    # Si solo tenías hasta el prompt, es suficiente por ahora para corregir el error.)
-    # Asumamos que el resto del código es lo que ya tenías antes, solo necesitamos
-    # el bloque de gspread y la limpieza de los docstrings.
-
-    # -------------------------------------------------------------
-    # (Si no tienes el resto del código para completar la función
-    # run_jobcraft_ai, te lo proporcionaré después de este paso)
-    # -------------------------------------------------------------
-    
-    # -------------------------------------------------------------
-    # SIMULACIÓN DEL RESTO DEL CÓDIGO (Si lo tenías)
-    # -------------------------------------------------------------
-    
     config = types.GenerateContentConfig(
         response_mime_type="application/json",
         response_schema=JobDescription,
@@ -130,14 +112,15 @@ def run_jobcraft_ai(api_key: str, title: str, level: str, critical_skill: str, c
         return f"Error al procesar la respuesta JSON de Gemini: {e}. Respuesta: {response.text}", None
 
 # =========================================================
-# 4. FUNCIÓN PARA GUARDAR LOS DATOS (¡NUEVO!)
+# 4. FUNCIÓN PARA GUARDAR LOS DATOS (VERSION FINAL PARA CLOUD)
 # =========================================================
 
 def guardar_datos_en_sheets(titulo_puesto: str, nivel: str, critical_skill: str):
     """Guarda los inputs del usuario en la hoja de seguimiento."""
     try:
-        # Autenticación (usa las mismas credenciales que get_competencias)
-        gc = gspread.service_account(filename=CREDENTIALS_FILE)
+        # ✅ CORRECCIÓN CLAVE: Autenticación usando st.secrets
+        gc = gspread.service_account_from_dict(st.secrets["gspread"]["gcp_service_account_credentials"])
+        
         spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
         # Ajusta este nombre si tu hoja de seguimiento tiene otro nombre
         worksheet = spreadsheet.worksheet("Seguimiento Generaciones") 
@@ -164,11 +147,11 @@ st.title("JobCraft AI 🤖 Generador de Puestos Estandarizados")
 
 
 # --- Validación de API Key ---
-# Leemos la API Key desde las variables de entorno o desde el input de Streamlit
-api_key = os.getenv("GEMINI_API_KEY") 
+# Leemos la API Key desde st.secrets (ya configurada)
+api_key = st.secrets["GEMINI_API_KEY"] if "GEMINI_API_KEY" in st.secrets else os.getenv("GEMINI_API_KEY") 
 
 if not api_key:
-    # Si la API Key no está en la variable de entorno, pide al usuario
+    # Si la API Key no está en los secretos, pide al usuario
     st.warning("¡Falta la clave API! Ingresa tu clave de Gemini API para continuar.")
     api_key_input = st.text_input("Ingresa tu clave de Gemini API:", type="password")
     
