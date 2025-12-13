@@ -1,169 +1,266 @@
 import os
-import streamlit as st 
+import streamlit as st
 import json
 import pandas as pd
 from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
+import gspread # <--- Importación para Google Sheets
 
 # =========================================================
 # 1. DEFINICIÓN DEL ESQUEMA DE SALIDA (El Contrato JSON)
 # =========================================================
 class JobDescription(BaseModel):
-    """Esquema de la descripción de puesto de trabajo generado por el agente JobCraft AI."""
-    titulo_puesto: str = Field(description="Título completo y claro del puesto.")
-    nivel: str = Field(description="Nivel de experiencia (Ej: Junior, Intermedio, Senior, Manager).")
-    resumen_puesto: str = Field(description="Descripción concisa y atractiva del rol y su impacto.")
-    responsabilidades_clave: list[str] = Field(description="Lista de 5 a 7 responsabilidades principales del rol.")
-    requisitos_minimos: list[str] = Field(description="Lista de 5 requisitos técnicos y de habilidades blandas indispensables.")
-    competencias_deseables: list[str] = Field(description="Lista de 2 a 3 competencias o certificaciones que añaden valor.")
-    palabras_clave_seo_rrhh: list[str] = Field(description="Lista de 3 a 5 palabras clave optimizadas para búsquedas de empleo.")
+    """Esquema de la descripción de puesto de trabajo generado por el agente JobCraft AI."""
+    titulo_puesto: str = Field(description="Título completo y claro del puesto.")
+    nivel: str = Field(description="Nivel de experiencia (Ej: Junior, Intermedio, Senior, Manager).")
+    resumen_puesto: str = Field(description="Descripción concisa y atractiva del rol y su impacto.")
+    responsabilidades_clave: list[str] = Field(description="Lista de 5 a 7 responsabilidades principales del rol.")
+    requisitos_minimos: list[str] = Field(description="Lista de 5 requisitos técnicos y de habilidades blandas indispensables.")
+    competencias_deseables: list[str] = Field(description="Lista de 2 a 3 competencias o certificaciones que añaden valor.")
+    palabras_clave_seo_rrhh: list[str] = Field(description="Lista de 3 a 5 palabras clave optimizadas para búsquedas de empleo.")
 
 # =========================================================
-# 2. FUNCIÓN PRINCIPAL DEL AGENTE (Función limpia)
+# CONFIGURACIÓN DE GOOGLE SHEETS
 # =========================================================
-
-def run_jobcraft_ai(api_key: str, title: str, level: str, critical_skill: str):
-    """Función que ejecuta el Agente JobCraft AI y devuelve el JSON."""
-    
-    try:
-        # El cliente ahora usa la clave que le pasa la interfaz web
-        client = genai.Client(api_key=api_key)
-    except Exception as e:
-        return f"Error de conexión: No se pudo conectar a Gemini. {e}", None
-
-    # --- El Prompt Maestro ---
-    prompt = f"""
-    Eres el Agente de Diseño de Puestos de Trabajo Inteligente (JobCraft AI). 
-    Tu objetivo es generar una descripción de puesto completa, atractiva y estructurada 
-    para el sector de Recursos Humanos. El resultado debe ser 100% libre de sesgos.
-    
-    **ENTRADAS DEL USUARIO:**
-    1.  Título del Puesto: {title}
-    2.  Nivel Requerido: {level}
-    3.  Habilidad Crítica de Enfoque: {critical_skill}
-    
-    **REGLA DE SALIDA VITAL:** DEBES devolver la respuesta únicamente en el formato JSON que te indico, SIN añadir ningún texto explicativo o introducción.
-    """
-
-    config = types.GenerateContentConfig(
-        response_mime_type="application/json",
-        response_schema=JobDescription,
-    )
-
-    try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-            config=config
-        )
-        # Devolver el JSON directamente
-        return None, response.text
-        
-    except Exception as e:
-        return f"Error al generar contenido (Clave inválida o límite excedido): {e}", None
+# ¡AJUSTA ESTO! Reemplaza 'jobcraft-sheets-api-a8e30825c2cd.json' con el ID real de tu hoja de competencias
+GOOGLE_SHEET_ID = "TU_SHEET_ID_AQUÍ"
+# Nombre del archivo de credenciales (debe coincidir con el nombre del archivo local)
+CREDENTIALS_FILE = "credentials.json"
 
 # =========================================================
-# 3. INTERFAZ WEB CON STREAMLIT (Con validación de Clave)
+# 2. FUNCIÓN DE CONEXIÓN A GOOGLE SHEETS
 # =========================================================
 
-st.set_page_config(page_title="JobCraft AI - Generador Web de Puestos", layout="wide")
+@st.cache_data(ttl=3600) # Cachea los datos por 1 hora
+def get_competencias(worksheet_name: str = "Diccionario Competencias"):
+    """Lee y devuelve los datos del diccionario de competencias desde Google Sheets."""
+    
+    try:
+        # Nota: gspread leerá las credenciales desde secrets.toml en la nube
+        gc = gspread.service_account(filename=CREDENTIALS_FILE)
+        
+        spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
+        worksheet = spreadsheet.worksheet(worksheet_name)
+        
+        data = worksheet.get_all_records()
+        df = pd.DataFrame(data)
+        
+        return df, None
+        
+    except Exception as e:
+        # Devuelve un mensaje de error útil si falla la conexión
+        return None, f"Error de conexión con Google Sheets. Verifica: 1) ID de la hoja; 2) Que la cuenta de servicio tenga acceso (Lector); 3) Credenciales configuradas en Streamlit Cloud. Detalle: {e}"
 
-st.title("✨ JobCraft AI - Generador Web de Puestos")
-st.markdown("Crea descripciones de trabajo optimizadas para RR. HH. al instante, impulsado por Gemini.")
 
-# --- BARRA LATERAL PARA LA CLAVE ---
-# La clave se obtiene del usuario, NO está codificada en el código
-api_key = st.sidebar.text_input("🔑 Ingresa tu API Key de Gemini", type="password", help="Necesaria para pagar el uso del modelo de IA.")
+# =========================================================
+# 3. FUNCIÓN PRINCIPAL DEL AGENTE (Función limpia con estandarización)
+# =========================================================
+
+def run_jobcraft_ai(api_key: str, title: str, level: str, critical_skill: str, competencias_df: pd.DataFrame):
+    """Función que ejecuta el Agente JobCraft AI y devuelve el JSON con competencias estandarizadas."""
+    
+    try:
+        client = genai.Client(api_key=api_key)
+    except Exception as e:
+        return f"Error de conexión: No se pudo conectar a Gemini. {e}", None
+
+    # --- Preprocesamiento de Competencias (Asume que usas las columnas 'Familia' y 'COREES_Definición_Core_N1_Inicial') ---
+    competencias_list = "\n".join(
+        # ¡Asegúrate de que estos nombres de columna coincidan exactamente con tu hoja de cálculo!
+        [f"-{row['Familia']}:{row['COREES_Definición_Core_N1_Inicial']}" for index, row in competencias_df.iterrows()]
+    )
+
+    # --- El Prompt Maestro MODIFICADO para usar el diccionario ---
+    prompt = f"""
+        Eres JobCraft AI, un agente especializado en Recursos Humanos cuya única función es generar descripciones de puestos de trabajo de alta calidad.
+        Tu salida debe ser ÚNICA y EXCLUSIVAMENTE el JSON que sigue el esquema proporcionado. No debes incluir ningún texto explicativo ni formato Markdown adicional (como `json` antes del bloque).
+
+        **Contexto de la Tarea:**
+        1. **Puesto Requerido:** Genera la descripción para un puesto de "{title}" con un nivel de experiencia "{level}".
+        2. **Habilidad Crítica:** Enfócate en la habilidad clave de "{critical_skill}".
+        3. **Estándares de Competencias:** DEBES usar y referenciar el siguiente listado de competencias estandarizadas para elegir las más adecuadas para los requisitos y competencias deseables. NUNCA inventes competencias que no estén en la lista.
+
+        **Diccionario de Competencias Estandarizadas (Formato: Familia:Definición):**
+        ---
+        {competencias_list}
+        ---
+
+        **Instrucciones de Generación:**
+        * **Título y Nivel:** Usa los inputs proporcionados.
+        * **Requisitos/Competencias:** Selecciona ÚNICAMENTE las competencias del diccionario que son relevantes. Si una competencia no existe en el diccionario, NO la uses.
+        * **Formato de Salida:** Respeta estrictamente el esquema JSON.
+    """
+    
+    # ... (El código continúa con la llamada a la API, pero nos detenemos aquí
+    # ya que la parte principal de la interfaz y la lógica de Sheets está arriba.
+    # Si la vez anterior te di el resto del código, pégalo también.
+    # Si solo tenías hasta el prompt, es suficiente por ahora para corregir el error.)
+    # Asumamos que el resto del código es lo que ya tenías antes, solo necesitamos
+    # el bloque de gspread y la limpieza de los docstrings.
+
+    # -------------------------------------------------------------
+    # (Si no tienes el resto del código para completar la función
+    # run_jobcraft_ai, te lo proporcionaré después de este paso)
+    # -------------------------------------------------------------
+    
+    # -------------------------------------------------------------
+    # SIMULACIÓN DEL RESTO DEL CÓDIGO (Si lo tenías)
+    # -------------------------------------------------------------
+    
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json",
+        response_schema=JobDescription,
+    )
+
+    # st.info(f"Prompt enviado: {prompt}") # Línea de debug, puedes comentarla
+
+    response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=prompt,
+        config=config,
+    )
+
+    # La respuesta es un string JSON que ya cumple con el esquema
+    try:
+        # Parsear el JSON para convertirlo a objeto Python
+        job_data = json.loads(response.text)
+        return None, JobDescription(**job_data) # Devuelve el objeto pydantic
+    except Exception as e:
+        return f"Error al procesar la respuesta JSON de Gemini: {e}. Respuesta: {response.text}", None
+
+# =========================================================
+# 4. FUNCIÓN PARA GUARDAR LOS DATOS (¡NUEVO!)
+# =========================================================
+
+def guardar_datos_en_sheets(titulo_puesto: str, nivel: str, critical_skill: str):
+    """Guarda los inputs del usuario en la hoja de seguimiento."""
+    try:
+        # Autenticación (usa las mismas credenciales que get_competencias)
+        gc = gspread.service_account(filename=CREDENTIALS_FILE)
+        spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
+        # Ajusta este nombre si tu hoja de seguimiento tiene otro nombre
+        worksheet = spreadsheet.worksheet("Seguimiento Generaciones") 
+
+        # Datos a guardar
+        timestamp = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
+        row_data = [timestamp, titulo_puesto, nivel, critical_skill, os.getenv("USERNAME", "N/A")]
+
+        # Inserta la nueva fila al final
+        worksheet.append_row(row_data) 
+        return True, None
+        
+    except Exception as e:
+        return False, f"Error al guardar en la hoja de seguimiento: {e}"
+
+
+# =========================================================
+# 5. INTERFAZ DE STREAMLIT (La parte que el usuario ve)
+# =========================================================
+
+# --- Configuración de la página ---
+st.set_page_config(page_title="JobCraft AI", layout="wide")
+st.title("JobCraft AI 🤖 Generador de Puestos Estandarizados")
+
+
+# --- Validación de API Key ---
+# Leemos la API Key desde las variables de entorno o desde el input de Streamlit
+api_key = os.getenv("GEMINI_API_KEY") 
+
+if not api_key:
+    # Si la API Key no está en la variable de entorno, pide al usuario
+    st.warning("¡Falta la clave API! Ingresa tu clave de Gemini API para continuar.")
+    api_key_input = st.text_input("Ingresa tu clave de Gemini API:", type="password")
+    
+    if api_key_input:
+        api_key = api_key_input
+    else:
+        st.stop()
+        
+# --- Cargar Diccionario de Competencias ---
+competencias_df, error_sheet = get_competencias()
+
+if error_sheet:
+    st.error(error_sheet)
+    st.stop() # Detiene la ejecución si hay un error de conexión
+
+# st.success("Diccionario de competencias cargado correctamente.") # Puedes descomentar esto para debug
+
 
 # --- Formulario de Entrada ---
-with st.form("job_form"):
-    st.header("1. Define el Puesto")
-    
-    # Campo 1: Título
-    title_input = st.text_input(
-        "Título del Puesto",
-        value="Analista de Experiencia del Empleado",
-        help="El título exacto que se usará para la publicación."
-    )
-    
-    # Campo 2: Nivel (Dropdown Select Box)
-    level_input = st.selectbox(
-        "Nivel de Experiencia",
-        options=["Junior", "Intermedio", "Senior", "Manager", "Director"],
-        index=2, # Valor preseleccionado: Senior
-        help="Nivel de responsabilidad y experiencia requerido."
-    )
-    
-    # Campo 3: Habilidad Crítica
-    skill_input = st.text_area(
-        "Habilidad Crítica o Foco Estratégico",
-        value="Uso de IA para personalizar planes de carrera y monitorear el bienestar emocional del equipo.",
-        help="Una habilidad o tema que debe ser enfatizado en las responsabilidades clave."
-    )
-    
-    # Botón de envío
-    submitted = st.form_submit_button("🚀 Generar Descripción con IA")
+with st.form("jobcraft_form"):
+    st.header("Define el Puesto")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        title_input = st.text_input("Título del Puesto (Ej: Ingeniero de Datos)", value="Analista Financiero")
+    
+    with col2:
+        level_input = st.selectbox(
+            "Nivel de Experiencia", 
+            ["Junior", "Intermedio", "Senior", "Lider/Manager"], 
+            index=1
+        )
+        
+    critical_skill_input = st.text_area(
+        "Habilidad o Experiencia Crítica del Puesto",
+        "Experiencia en Modelado Financiero avanzado (DCF, WACC) y dominio de Power BI.",
+        height=100
+    )
+    
+    submitted = st.form_submit_button("Generar Descripción de Puesto")
 
-# --- Lógica de Procesamiento y Validación ---
+
+# --- Procesamiento de la Solicitud ---
 if submitted:
-    
-    # 🚨 Validar la clave API antes de hacer cualquier cosa
-    if not api_key or not api_key.startswith("AIza"):
-        st.error("🚨 ERROR: Por favor, ingresa una API Key válida de Google Gemini en la barra lateral para continuar.")
-        
-    else:
-        # Mostrar Spinner mientras procesa
-        with st.spinner('Procesando solicitud con Gemini... ⏳'):
-            
-            # Llamar a la función principal con la clave proporcionada por el usuario
-            error, result_json_text = run_jobcraft_ai(
-                api_key, # Pasa la clave de la barra lateral
-                title_input, 
-                level_input, 
-                skill_input
-            )
-        
-        # Manejo del resultado
-        if error:
-            st.error(f"❌ Error al ejecutar JobCraft AI: {error}")
-        
-        elif result_json_text:
-            st.success("✅ Descripción Generada con Éxito")
-            
-            try:
-                # Convertir el JSON de vuelta a un objeto Python para mostrarlo bonito
-                data_dict = json.loads(result_json_text)
-                
-                # --- VISUALIZACIÓN EN LA WEB ---
-                
-                st.subheader(data_dict.get('titulo_puesto', 'Puesto Generado'))
-                
-                st.markdown("**Resumen del Puesto:**")
-                st.info(data_dict.get('resumen_puesto', 'N/A'))
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.markdown("**Nivel:**")
-                    st.write(data_dict.get('nivel', 'N/A'))
-                    st.markdown("**Palabras Clave SEO:**")
-                    st.code(', '.join(data_dict.get('palabras_clave_seo_rrhh', [])))
+    
+    # 1. Ejecutar el Agente AI
+    with st.spinner("🚀 Generando descripción con JobCraft AI..."):
+        error_ai, job_description_output = run_jobcraft_ai(
+            api_key, 
+            title_input, 
+            level_input, 
+            critical_skill_input, 
+            competencias_df
+        )
 
-                with col2:
-                    st.markdown("**Responsabilidades Clave:**")
-                    for resp in data_dict.get('responsabilidades_clave', []):
-                        st.markdown(f"- {resp}")
-                    
-                    st.markdown("**Requisitos Mínimos:**")
-                    for req in data_dict.get('requisitos_minimos', []):
-                        st.markdown(f"- {req}")
-
-                st.markdown("---")
-                st.caption("Salida JSON Cruda (para copiar y pegar):")
-                st.json(data_dict) # Mostrar el JSON crudo en un formato plegable
-
-            except json.JSONDecodeError:
-                st.error("❌ Error: La salida del modelo no fue un JSON válido.")
-                st.code(result_json_text)
-        else:
-            st.error("No se recibió respuesta del modelo.")
+    # 2. Mostrar Resultado o Error
+    if error_ai:
+        st.error(error_ai)
+    elif job_description_output:
+        
+        st.success(f"✅ ¡Descripción generada para: {job_description_output.titulo_puesto}!")
+        
+        # 3. Guardar en Hoja de Seguimiento
+        success_save, error_save = guardar_datos_en_sheets(
+            job_description_output.titulo_puesto,
+            job_description_output.nivel,
+            critical_skill_input
+        )
+        
+        if success_save:
+            st.toast("💾 Datos de generación guardados en Google Sheets.", icon="✅")
+        else:
+            st.warning(f"⚠️ Error al guardar en Sheets: {error_save}")
+            
+        
+        # 4. Mostrar la Descripción formateada
+        st.subheader(job_description_output.titulo_puesto)
+        st.markdown(f"**Nivel:** {job_description_output.nivel}")
+        
+        st.markdown("---")
+        
+        st.markdown("**Resumen del Puesto**")
+        st.write(job_description_output.resumen_puesto)
+        
+        st.markdown("**Responsabilidades Clave**")
+        st.markdown("\n".join([f"* {r}" for r in job_description_output.responsabilidades_clave]))
+        
+        st.markdown("**Requisitos Mínimos**")
+        st.markdown("\n".join([f"* {r}" for r in job_description_output.requisitos_minimos]))
+        
+        st.markdown("**Competencias Deseables**")
+        st.markdown("\n".join([f"* {r}" for r in job_description_output.competencias_deseables]))
+        
+        st.caption(f"Palabras clave RRHH: {', '.join(job_description_output.palabras_clave_seo_rrhh)}")
