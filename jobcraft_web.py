@@ -37,7 +37,7 @@ def get_competencias(worksheet_name: str = "Diccionario Competencias"):
     
     try:
         # ✅ CORRECCIÓN CLAVE: Usamos st.secrets para leer las credenciales del archivo TOML
-        gc = gspread.service_account_from_dict(st.secrets["gspread"]["gcp_service_account_credentials"]) 
+        gc = gspread.service_account_from_dict(json.loads(st.secrets["gspread"]["gcp_service_account_credentials"])) 
         
         spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
         worksheet = spreadsheet.worksheet(worksheet_name)
@@ -119,7 +119,7 @@ def guardar_datos_en_sheets(titulo_puesto: str, nivel: str, critical_skill: str)
     """Guarda los inputs del usuario en la hoja de seguimiento."""
     try:
         # ✅ CORRECCIÓN CLAVE: Autenticación usando st.secrets
-        gc = gspread.service_account_from_dict(st.secrets["gspread"]["gcp_service_account_credentials"])
+        gc = gspread.service_account_from_dict(json.loads(st.secrets["gspread"]["gcp_service_account_credentials"]))
         
         spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
         # Ajusta este nombre si tu hoja de seguimiento tiene otro nombre
