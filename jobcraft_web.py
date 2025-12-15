@@ -23,7 +23,7 @@ class JobDescription(BaseModel):
 # =========================================================
 # CONFIGURACIÓN DE GOOGLE SHEETS
 # =========================================================
-# ⚠️ CORRECCIÓN 1: ID DE LA HOJA DE CÁLCULO
+# CORRECCIÓN 1: ID DE LA HOJA DE CÁLCULO
 GOOGLE_SHEET_ID = "1QPJ1JoCW7XO-6sf-WMz8SvAtylKTAShuMr_yGBoF-Xg" 
 # Ya NO se define CREDENTIALS_FILE porque se lee desde st.secrets
 
@@ -32,13 +32,13 @@ GOOGLE_SHEET_ID = "1QPJ1JoCW7XO-6sf-WMz8SvAtylKTAShuMr_yGBoF-Xg"
 # =========================================================
 
 @st.cache_data(ttl=3600) # Cachea los datos por 1 hora
-# ⚠️ CORRECCIÓN 2: NOMBRE DE LA HOJA (GUION BAJO)
+# CORRECCIÓN 2: NOMBRE DE LA HOJA (GUION BAJO)
 def get_competencias(worksheet_name: str = "Diccionario_Competencias"):
     """Lee y devuelve los datos del diccionario de competencias desde Google Sheets."""
     
     try:
-        # ✅ CORRECCIÓN CLAVE: Usamos st.secrets para leer las credenciales del archivo TOML
-        gc = gspread.service_account_from_dict(json.loads(st.secrets["gspread"]["gcp_service_account_credentials"]))
+        # ✅ CORRECCIÓN FINAL CLAVE: SE ELIMINA json.loads() porque st.secrets ya devuelve un dict (Opción A)
+        gc = gspread.service_account_from_dict(st.secrets["gspread"]["gcp_service_account_credentials"])
         
         spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
         worksheet = spreadsheet.worksheet(worksheet_name)
@@ -49,7 +49,8 @@ def get_competencias(worksheet_name: str = "Diccionario_Competencias"):
         return df, None
         
     except Exception as e:
-        return None, f"Error de conexión con Google Sheets. Verifica: 1) ID de la hoja; 2) Que la cuenta de servicio tenga acceso (Lector); 3) Credenciales configuradas en Streamlit Cloud. Detalle: {e}"
+        # Este mensaje de error es muy detallado para debug.
+        return None, f"Error de conexión con Google Sheets. Verifica: 1) ID de la hoja; 2) Que la cuenta de servicio tenga acceso (Editor/Lector); 3) Credenciales configuradas en Streamlit Cloud. Detalle: {e}"
 
 
 # =========================================================
@@ -119,8 +120,8 @@ def run_jobcraft_ai(api_key: str, title: str, level: str, critical_skill: str, c
 def guardar_datos_en_sheets(titulo_puesto: str, nivel: str, critical_skill: str):
     """Guarda los inputs del usuario en la hoja de seguimiento."""
     try:
-        # ✅ CORRECCIÓN CLAVE: Autenticación usando st.secrets
-        gc = gspread.service_account_from_dict(json.loads(st.secrets["gspread"]["gcp_service_account_credentials"]))
+        # ✅ CORRECCIÓN FINAL CLAVE: SE ELIMINA json.loads() porque st.secrets ya devuelve un dict (Opción A)
+        gc = gspread.service_account_from_dict(st.secrets["gspread"]["gcp_service_account_credentials"])
         
         spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
         # Ajusta este nombre si tu hoja de seguimiento tiene otro nombre
