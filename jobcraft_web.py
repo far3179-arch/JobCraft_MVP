@@ -23,8 +23,8 @@ class JobDescription(BaseModel):
 # =========================================================
 # CONFIGURACIÓN DE GOOGLE SHEETS
 # =========================================================
-# ⚠️ AJUSTE OBLIGATORIO: Reemplaza 'TU_SHEET_ID_AQUÍ' con el ID real de tu hoja
-GOOGLE_SHEET_ID = "AIzaSyAXPGgR5vposP7z-pIkyR89s0ksd27yk8o"
+# ⚠️ CORRECCIÓN 1: ID DE LA HOJA DE CÁLCULO
+GOOGLE_SHEET_ID = "1QPJ1JoCW7XO-6sf-WMz8SvAtylKTAShuMr_yGBoF-Xg" 
 # Ya NO se define CREDENTIALS_FILE porque se lee desde st.secrets
 
 # =========================================================
@@ -32,12 +32,13 @@ GOOGLE_SHEET_ID = "AIzaSyAXPGgR5vposP7z-pIkyR89s0ksd27yk8o"
 # =========================================================
 
 @st.cache_data(ttl=3600) # Cachea los datos por 1 hora
-def get_competencias(worksheet_name: str = "Diccionario Competencias"):
+# ⚠️ CORRECCIÓN 2: NOMBRE DE LA HOJA (GUION BAJO)
+def get_competencias(worksheet_name: str = "Diccionario_Competencias"):
     """Lee y devuelve los datos del diccionario de competencias desde Google Sheets."""
     
     try:
         # ✅ CORRECCIÓN CLAVE: Usamos st.secrets para leer las credenciales del archivo TOML
-        gc = gspread.service_account_from_dict(json.loads(st.secrets["gspread"]["gcp_service_account_credentials"])) 
+        gc = gspread.service_account_from_dict(json.loads(st.secrets["gspread"]["gcp_service_account_credentials"]))
         
         spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
         worksheet = spreadsheet.worksheet(worksheet_name)
