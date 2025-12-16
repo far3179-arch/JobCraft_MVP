@@ -37,8 +37,8 @@ def get_competencias(worksheet_name: str = "Diccionario_Competencias"):
     """Lee y devuelve los datos del diccionario de competencias desde Google Sheets."""
     
     try:
-        # ✅ CORRECCIÓN FINAL CLAVE: SE ELIMINA json.loads() porque st.secrets ya devuelve un dict (Opción A)
-        gc = gspread.service_account_from_dict(st.secrets["gspread"]["gcp_service_account_credentials"])
+        # 🟢 LÍNEA CRÍTICA CORREGIDA: Usa json.loads() para leer el String JSON
+        gc = gspread.service_account_from_dict(json.loads(st.secrets["gspread"]["gcp_service_account_credentials"]))
         
         spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
         worksheet = spreadsheet.worksheet(worksheet_name)
@@ -120,8 +120,8 @@ def run_jobcraft_ai(api_key: str, title: str, level: str, critical_skill: str, c
 def guardar_datos_en_sheets(titulo_puesto: str, nivel: str, critical_skill: str):
     """Guarda los inputs del usuario en la hoja de seguimiento."""
     try:
-        # ✅ CORRECCIÓN FINAL CLAVE: SE ELIMINA json.loads() porque st.secrets ya devuelve un dict (Opción A)
-        gc = gspread.service_account_from_dict(st.secrets["gspread"]["gcp_service_account_credentials"])
+        # 🟢 LÍNEA CRÍTICA CORREGIDA: Usa json.loads() para leer el String JSON
+        gc = gspread.service_account_from_dict(json.loads(st.secrets["gspread"]["gcp_service_account_credentials"]))
         
         spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
         # Ajusta este nombre si tu hoja de seguimiento tiene otro nombre
