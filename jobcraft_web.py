@@ -21,7 +21,8 @@ GOOGLE_SHEET_ID = "1QPJ1JoCW7XO-6sf-WMz8SvAtylKTAShuMr_yGBoF-Xg"
 
 # 2. CONEXIÓN A SHEETS (SIN json.loads)
 @st.cache_data(ttl=3600)
-def get_competencias(worksheet_name: str = "Diccionario_Competencias"):
+# AQUI ESTA EL CAMBIO: Apunta a la hoja nueva "Diccionario_JobCraft"
+def get_competencias(worksheet_name: str = "Diccionario_JobCraft"):
     try:
         # Accedemos directamente al diccionario de secretos
         creds = st.secrets["gspread"]["gcp_service_account_credentials"]
@@ -37,6 +38,7 @@ def get_competencias(worksheet_name: str = "Diccionario_Competencias"):
 def run_jobcraft_ai(api_key: str, title: str, level: str, critical_skill: str, competencias_df: pd.DataFrame):
     try:
         client = genai.Client(api_key=api_key)
+        # Aquí usa el nombre de columna "COREES_Definición_Core_N1_Inicial"
         competencias_list = "\n".join([f"-{row['Familia']}:{row['COREES_Definición_Core_N1_Inicial']}" for index, row in competencias_df.iterrows()])
         prompt = f"Genera descripción para {title} nivel {level}. Habilidad crítica: {critical_skill}. Usa estas competencias: {competencias_list}"
         config = types.GenerateContentConfig(response_mime_type="application/json", response_schema=JobDescription)
@@ -51,6 +53,7 @@ def guardar_datos_en_sheets(titulo_puesto: str, nivel: str, critical_skill: str)
         creds = st.secrets["gspread"]["gcp_service_account_credentials"]
         gc = gspread.service_account_from_dict(creds)
         spreadsheet = gc.open_by_key(GOOGLE_SHEET_ID)
+        # Asegúrate de tener esta hoja creada: "Seguimiento Generaciones"
         worksheet = spreadsheet.worksheet("Seguimiento Generaciones") 
         timestamp = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
         worksheet.append_row([timestamp, titulo_puesto, nivel, critical_skill]) 
