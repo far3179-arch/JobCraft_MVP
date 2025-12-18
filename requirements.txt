@@ -2,3 +2,5 @@ google-genai
 streamlit
 pandas
 gspread
+python-docx
+fpdf
