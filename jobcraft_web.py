@@ -9,10 +9,11 @@ import gspread
 import json 
 
 # ---------------------------------------------------------
-# 1. ESQUEMA DE DATOS "V3" (Nombre nuevo para forzar actualización)
+# 1. ESQUEMA DE DATOS "V4" (Corregido: Incluye 'nivel')
 # ---------------------------------------------------------
-class JobDescriptionV3(BaseModel):
+class JobDescriptionV4(BaseModel):
     titulo_puesto: str = Field(description="El título que se mostrará en el perfil.")
+    nivel: str = Field(description="Nivel de seniority del puesto.") # <--- ¡ESTE FALTABA!
     titulo_oficial_match: str = Field(description="El título exacto encontrado en el catálogo oficial.")
     origen_titulo: str = Field(description="Debe decir 'ESTANDARIZADO' o 'NUEVO'.")
     mision_puesto: str = Field(description="Propósito principal del cargo.")
@@ -54,7 +55,7 @@ def get_perfiles_estandar(worksheet_name: str = "Perfiles_Base_JobCraft"):
         return "", f"Nota: No se encontró hoja de perfiles base ({e}). Se generará libremente."
 
 # ---------------------------------------------------------
-# 3. CEREBRO DE LA IA (Usando V3)
+# 3. CEREBRO DE LA IA (Usando V4)
 # ---------------------------------------------------------
 def run_jobcraft_ai(api_key: str, title: str, level: str, critical_skill: str, competencias_df: pd.DataFrame, lista_perfiles_base: str):
     max_retries = 3
@@ -95,10 +96,10 @@ def run_jobcraft_ai(api_key: str, title: str, level: str, critical_skill: str, c
             Genera JSON estricto.
             """
             
-            # USAMOS LA CLASE V3
-            config = types.GenerateContentConfig(response_mime_type="application/json", response_schema=JobDescriptionV3)
+            # USAMOS LA CLASE V4
+            config = types.GenerateContentConfig(response_mime_type="application/json", response_schema=JobDescriptionV4)
             response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt, config=config)
-            return None, JobDescriptionV3(**json.loads(response.text))
+            return None, JobDescriptionV4(**json.loads(response.text))
             
         except Exception as e:
             if "503" in str(e) or "overloaded" in str(e).lower() or "429" in str(e):
@@ -166,11 +167,14 @@ if btn:
         if err_ai: 
             st.error(err_ai)
         else:
-            # --- ACCESO SEGURO (Anti-Caídas) ---
-            # Usamos getattr() para que, si el campo no existe, use "NUEVO" en vez de dar error.
+            # --- ACCESO SEGURO A TODO ---
+            # Usamos getattr() para todo, así si falta algo no explota
             origen_seguro = getattr(res, 'origen_titulo', 'NUEVO')
-            
-            guardar_datos_en_sheets(res.titulo_puesto, res.nivel, origen_seguro)
+            nivel_seguro = getattr(res, 'nivel', l) # Si no hay nivel, usa el del selectbox 'l'
+            titulo_oficial = getattr(res, 'titulo_oficial_match', 'N/A')
+            obs_ia = getattr(res, 'observacion_ia', '')
+
+            guardar_datos_en_sheets(res.titulo_puesto, nivel_seguro, origen_seguro)
             
             st.divider()
             
@@ -182,8 +186,7 @@ if btn:
 
             st.markdown(f"<h1 style='text-align: center; color: #1E88E5;'>{res.titulo_puesto}</h1>", unsafe_allow_html=True)
             
-            # Nota de equivalencia con acceso seguro a titulo_oficial_match
-            titulo_oficial = getattr(res, 'titulo_oficial_match', 'N/A')
+            # Nota de equivalencia
             if titulo_oficial != "N/A" and titulo_oficial != res.titulo_puesto:
                  st.markdown(
                      f"<div style='background-color: #fff3cd; padding: 10px; border-radius: 5px; text-align: center; color: #856404; margin-bottom: 20px;'>"
@@ -191,10 +194,10 @@ if btn:
                      f"</div>", 
                      unsafe_allow_html=True
                  )
-            elif res.observacion_ia:
-                 st.caption(f"🤖 Nota: {res.observacion_ia}")
+            elif obs_ia:
+                 st.caption(f"🤖 Nota: {obs_ia}")
 
-            st.markdown(f"<p style='text-align: center;'>Nivel: <b>{res.nivel}</b></p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='text-align: center;'>Nivel: <b>{nivel_seguro}</b></p>", unsafe_allow_html=True)
             st.info(f"🎯 **Misión:** {res.mision_puesto}")
             
             col_izq, col_der = st.columns(2)
