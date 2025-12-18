@@ -9,10 +9,10 @@ import gspread
 import json 
 
 # ---------------------------------------------------------
-# 1. ESQUEMA DE DATOS
+# 1. ESQUEMA DE DATOS (Aquí definimos 'origen_titulo')
 # ---------------------------------------------------------
 class JobDescription(BaseModel):
-    titulo_puesto: str = Field(description="El título que se mostrará en el perfil (solicitado por el usuario).")
+    titulo_puesto: str = Field(description="El título que se mostrará en el perfil.")
     titulo_oficial_match: str = Field(description="El título exacto encontrado en el catálogo oficial (si hubo coincidencia).")
     origen_titulo: str = Field(description="Debe decir 'ESTANDARIZADO' si se encontró match, o 'NUEVO' si no.")
     mision_puesto: str = Field(description="Propósito principal del cargo.")
@@ -48,19 +48,16 @@ def get_perfiles_estandar(worksheet_name: str = "Perfiles_Base_JobCraft"):
         sh = get_google_sheet_client()
         worksheet = sh.worksheet(worksheet_name)
         data = worksheet.get_all_records()
-        # Formato simple para la IA: Cargo (Nivel)
         lista_formateada = [f"{row['Cargo']} ({row.get('Nivel', 'N/A')})" for row in data]
         return "\n".join(lista_formateada), None
     except Exception as e:
         return "", f"Nota: No se encontró hoja de perfiles base ({e}). Se generará libremente."
 
 # ---------------------------------------------------------
-# 3. CEREBRO DE LA IA (CON REINTENTOS AUTOMÁTICOS)
+# 3. CEREBRO DE LA IA (CON REINTENTOS)
 # ---------------------------------------------------------
 def run_jobcraft_ai(api_key: str, title: str, level: str, critical_skill: str, competencias_df: pd.DataFrame, lista_perfiles_base: str):
-    # Intentaremos hasta 3 veces si el servidor está ocupado
     max_retries = 3
-    
     for attempt in range(max_retries):
         try:
             client = genai.Client(api_key=api_key)
@@ -81,21 +78,18 @@ def run_jobcraft_ai(api_key: str, title: str, level: str, critical_skill: str, c
             
             INSTRUCCIONES DE ESTANDARIZACIÓN (HÍBRIDA):
             1. Busca en el CATÁLOGO OFICIAL si existe un puesto equivalente.
-               - Ejemplo: Usuario pide "Analista de Ventas". Catálogo tiene "Analista Comercial". SON EQUIVALENTES.
-            
-            2. SI ENCUENTRAS COINCIDENCIA (Equivalencia):
+            2. SI ENCUENTRAS COINCIDENCIA:
                - 'titulo_puesto': Mantén el nombre que pidió el usuario.
                - 'titulo_oficial_match': Pon el nombre oficial del catálogo.
                - 'origen_titulo': "ESTANDARIZADO".
                - 'observacion_ia': "Este puesto es equivalente a [Titulo Oficial] en el Catálogo Maestro".
-               
             3. SI NO HAY COINCIDENCIA:
                - 'titulo_puesto': El solicitado por el usuario.
                - 'titulo_oficial_match': "N/A"
                - 'origen_titulo': "NUEVO".
             
             INSTRUCCIONES DE CONTENIDO:
-            4. Usa las competencias del diccionario adjunto (definiciones exactas).
+            4. Usa las competencias del diccionario adjunto.
             5. Genera Misión, Responsabilidades y KPIs profesionales.
             
             Genera JSON estricto.
@@ -106,18 +100,16 @@ def run_jobcraft_ai(api_key: str, title: str, level: str, critical_skill: str, c
             return None, JobDescription(**json.loads(response.text))
             
         except Exception as e:
-            # Si es error 503 (Sobrecarga) o 429 (Límite), esperamos y reintentamos
             if "503" in str(e) or "overloaded" in str(e).lower() or "429" in str(e):
-                time.sleep(2) # Espera 2 segundos
+                time.sleep(2)
                 continue 
             else:
-                # Otros errores (ej: API Key inválida) se reportan de inmediato
                 return f"Error AI: {e}", None
 
     return "El servidor de IA está muy ocupado. Por favor intenta en unos segundos.", None
 
 # ---------------------------------------------------------
-# 4. GUARDAR RESULTADOS
+# 4. GUARDAR RESULTADOS (Ahora sí coincidirá con el esquema)
 # ---------------------------------------------------------
 def guardar_datos_en_sheets(titulo_puesto: str, nivel: str, origen: str):
     try:
@@ -142,7 +134,6 @@ if not api_key:
     st.error("⚠️ Falta API KEY en Secrets")
     st.stop()
 
-# Carga de Datos
 col_load1, col_load2 = st.columns(2)
 with col_load1:
     df_comp, err_comp = get_competencias()
@@ -178,16 +169,13 @@ if btn:
             
             st.divider()
             
-            # --- VISUALIZACIÓN MEJORADA ---
             if res.origen_titulo == "ESTANDARIZADO":
                 st.success(f"✅ **PUESTO VALIDADO:** Se encontró equivalencia en el catálogo oficial.")
             else:
                 st.info(f"🆕 **NUEVO PUESTO:** Creando perfil desde cero (No existe en catálogo).")
 
-            # TITULO
             st.markdown(f"<h1 style='text-align: center; color: #1E88E5;'>{res.titulo_puesto}</h1>", unsafe_allow_html=True)
             
-            # NOTA DE EQUIVALENCIA
             if res.titulo_oficial_match and res.titulo_oficial_match != "N/A" and res.titulo_oficial_match != res.titulo_puesto:
                  st.markdown(
                      f"<div style='background-color: #fff3cd; padding: 10px; border-radius: 5px; text-align: center; color: #856404; margin-bottom: 20px;'>"
