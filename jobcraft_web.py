@@ -9,9 +9,10 @@ import gspread
 import json 
 
 # ---------------------------------------------------------
-# 1. ESQUEMA DE DATOS (Aquí definimos 'origen_titulo')
+# 1. ESQUEMA DE DATOS (RENOMBRADO PARA FORZAR ACTUALIZACIÓN)
 # ---------------------------------------------------------
-class JobDescription(BaseModel):
+# Cambiamos el nombre de la clase a JobDescriptionFinal para evitar conflictos de caché
+class JobDescriptionFinal(BaseModel):
     titulo_puesto: str = Field(description="El título que se mostrará en el perfil.")
     titulo_oficial_match: str = Field(description="El título exacto encontrado en el catálogo oficial (si hubo coincidencia).")
     origen_titulo: str = Field(description="Debe decir 'ESTANDARIZADO' si se encontró match, o 'NUEVO' si no.")
@@ -54,7 +55,7 @@ def get_perfiles_estandar(worksheet_name: str = "Perfiles_Base_JobCraft"):
         return "", f"Nota: No se encontró hoja de perfiles base ({e}). Se generará libremente."
 
 # ---------------------------------------------------------
-# 3. CEREBRO DE LA IA (CON REINTENTOS)
+# 3. CEREBRO DE LA IA
 # ---------------------------------------------------------
 def run_jobcraft_ai(api_key: str, title: str, level: str, critical_skill: str, competencias_df: pd.DataFrame, lista_perfiles_base: str):
     max_retries = 3
@@ -95,9 +96,10 @@ def run_jobcraft_ai(api_key: str, title: str, level: str, critical_skill: str, c
             Genera JSON estricto.
             """
             
-            config = types.GenerateContentConfig(response_mime_type="application/json", response_schema=JobDescription)
+            # AQUI ACTUALIZAMOS LA REFERENCIA A LA NUEVA CLASE
+            config = types.GenerateContentConfig(response_mime_type="application/json", response_schema=JobDescriptionFinal)
             response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt, config=config)
-            return None, JobDescription(**json.loads(response.text))
+            return None, JobDescriptionFinal(**json.loads(response.text))
             
         except Exception as e:
             if "503" in str(e) or "overloaded" in str(e).lower() or "429" in str(e):
@@ -109,7 +111,7 @@ def run_jobcraft_ai(api_key: str, title: str, level: str, critical_skill: str, c
     return "El servidor de IA está muy ocupado. Por favor intenta en unos segundos.", None
 
 # ---------------------------------------------------------
-# 4. GUARDAR RESULTADOS (Ahora sí coincidirá con el esquema)
+# 4. GUARDAR RESULTADOS
 # ---------------------------------------------------------
 def guardar_datos_en_sheets(titulo_puesto: str, nivel: str, origen: str):
     try:
@@ -165,6 +167,7 @@ if btn:
         if err_ai: 
             st.error(err_ai)
         else:
+            # Aquí llamamos al nuevo atributo y funcionará porque la clase es nueva
             guardar_datos_en_sheets(res.titulo_puesto, res.nivel, res.origen_titulo)
             
             st.divider()
