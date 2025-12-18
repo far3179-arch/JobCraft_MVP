@@ -8,24 +8,24 @@ import gspread
 import json 
 
 # ---------------------------------------------------------
-# 1. ESQUEMA DE DATOS (Incluye campo de Estandarización)
+# 1. ESQUEMA DE DATOS (Añadimos campo de "Título Oficial")
 # ---------------------------------------------------------
 class JobDescription(BaseModel):
-    titulo_puesto: str = Field(description="El título FINAL del puesto (ya estandarizado si hubo coincidencia).")
-    nivel: str = Field(description="Nivel de seniority.")
-    origen_titulo: str = Field(description="Debe decir 'ESTANDARIZADO' si se tomó de la lista oficial, o 'NUEVO' si se creó desde cero.")
+    titulo_puesto: str = Field(description="El título que se mostrará en el perfil (generalmente el solicitado por el usuario).")
+    titulo_oficial_match: str = Field(description="El título exacto encontrado en el catálogo oficial (si hubo coincidencia).")
+    origen_titulo: str = Field(description="Debe decir 'ESTANDARIZADO' si se encontró match, o 'NUEVO' si no.")
     mision_puesto: str = Field(description="Propósito principal del cargo.")
     responsabilidades_clave: list[str] = Field(description="5-7 funciones principales orientadas a resultados.")
     competencias_conductuales_seleccionadas: list[str] = Field(description="Las 4-5 competencias del diccionario seleccionadas.")
     competencias_tecnicas: list[str] = Field(description="Habilidades duras (Hard Skills).")
     requisitos_formacion: list[str] = Field(description="Formación académica.")
     kpis_sugeridos: list[str] = Field(description="Indicadores clave (KPIs).")
-    observacion_ia: str = Field(description="Explicación si cambió el título (Ej: 'Cambié Vendedor Jr por Asistente de Ventas según catálogo').")
+    observacion_ia: str = Field(description="Explicación de la equivalencia (Ej: 'Se validó Analista de Ventas como equivalente a Analista Comercial').")
 
 GOOGLE_SHEET_ID = "1QPJ1JoCW7XO-6sf-WMz8SvAtylKTAShuMr_yGBoF-Xg" 
 
 # ---------------------------------------------------------
-# 2. CONEXIÓN A SHEETS (Ahora lee 2 hojas)
+# 2. CONEXIÓN A SHEETS
 # ---------------------------------------------------------
 def get_google_sheet_client():
     creds = st.secrets["gspread"]["gcp_service_account_credentials"]
@@ -45,57 +45,53 @@ def get_competencias(worksheet_name: str = "Diccionario_JobCraft"):
 def get_perfiles_estandar(worksheet_name: str = "Perfiles_Base_JobCraft"):
     try:
         sh = get_google_sheet_client()
-        # Intentamos cargar la hoja de perfiles base
         worksheet = sh.worksheet(worksheet_name)
         data = worksheet.get_all_records()
-        # Convertimos a texto simple para que la IA lo lea rápido: "Cargo (Nivel)"
         lista_formateada = [f"{row['Cargo']} ({row.get('Nivel', 'N/A')})" for row in data]
         return "\n".join(lista_formateada), None
     except Exception as e:
-        # Si falla (ej: no existe la hoja aún), devolvemos texto vacío pero no rompemos la app
         return "", f"Nota: No se encontró hoja de perfiles base ({e}). Se generará libremente."
 
 # ---------------------------------------------------------
-# 3. CEREBRO DE LA IA (Prompt con Lógica de Cruce)
+# 3. CEREBRO DE LA IA (Lógica de Equivalencia)
 # ---------------------------------------------------------
 def run_jobcraft_ai(api_key: str, title: str, level: str, critical_skill: str, competencias_df: pd.DataFrame, lista_perfiles_base: str):
     try:
         client = genai.Client(api_key=api_key)
         
-        # Preparamos el diccionario de competencias
         lista_competencias = "\n".join([
             f"- {row['Familia']}: {row['COREES_Definición_Core_N1_Inicial']}" 
             for index, row in competencias_df.iterrows()
         ])
         
-        # PROMPT DE ESTANDARIZACIÓN
+        # PROMPT MODIFICADO PARA "MAPEO" NO "REEMPLAZO"
         prompt = f"""
-        Actúa como un Director de Talento Humano experto en Estructura Organizacional.
-        Objetivo: Definir un perfil de puesto para: '{title}' (Nivel deseado: {level}).
+        Actúa como Director de Estructura Organizacional.
+        Objetivo: Definir perfil para: '{title}' (Nivel: {level}).
         Habilidad Crítica: {critical_skill}
         
-        --- BASE DE DATOS DE PUESTOS EXISTENTES (CATÁLOGO OFICIAL) ---
+        --- CATÁLOGO OFICIAL ---
         {lista_perfiles_base}
-        ------------------------------------------------------------
+        ------------------------
         
-        INSTRUCCIONES DE ESTANDARIZACIÓN (PRIORIDAD ALTA):
-        1. Busca en el CATÁLOGO OFICIAL arriba si existe un puesto similar o equivalente al solicitado.
-           - Ejemplo: Si piden "Vendedor Jr" y en la lista existe "Asistente de Ventas", USA "Asistente de Ventas".
-           - Ejemplo: Si piden "Gerente de Ventas" (Nivel Junior), y eso es ilógico, busca si existe "Coordinador" o "Analista Senior".
+        INSTRUCCIONES DE ESTANDARIZACIÓN (HÍBRIDA):
+        1. Busca en el CATÁLOGO OFICIAL si existe un puesto equivalente.
+           - Ejemplo: Usuario pide "Analista de Ventas". Catálogo tiene "Analista Comercial". SON EQUIVALENTES.
         
-        2. SI ENCUENTRAS COINCIDENCIA EN EL CATÁLOGO:
-           - Usa el 'titulo_puesto' exacto del catálogo.
-           - Marca 'origen_titulo' como "ESTANDARIZADO".
-           - En 'observacion_ia' explica: "Se reemplazó [Titulo Usuario] por [Titulo Oficial] para cumplir el estándar".
+        2. SI ENCUENTRAS COINCIDENCIA (Equivalencia):
+           - 'titulo_puesto': Mantén el nombre que pidió el usuario ("Analista de Ventas").
+           - 'titulo_oficial_match': Pon el nombre oficial del catálogo ("Analista Comercial").
+           - 'origen_titulo': "ESTANDARIZADO".
+           - 'observacion_ia': "Este puesto es equivalente a [Titulo Oficial] en el Catálogo Maestro".
            
-        3. SI NO HAY COINCIDENCIA (Es un puesto nuevo):
-           - Usa el título propuesto por el usuario (ajustándolo si es semánticamente incorrecto, ej: Gerente Junior -> Coordinador).
-           - Marca 'origen_titulo' como "NUEVO".
+        3. SI NO HAY COINCIDENCIA:
+           - 'titulo_puesto': El solicitado por el usuario.
+           - 'titulo_oficial_match': "N/A"
+           - 'origen_titulo': "NUEVO".
         
         INSTRUCCIONES DE CONTENIDO:
-        4. Competencias Conductuales: Selecciona 4-5 EXCLUSIVAMENTE del siguiente diccionario:
-           {lista_competencias}
-        5. Redacta Misión, Responsabilidades y KPIs con alto nivel técnico.
+        4. Usa las competencias del diccionario adjunto.
+        5. Genera Misión, Responsabilidades y KPIs profesionales.
         
         Genera JSON estricto.
         """
@@ -114,7 +110,6 @@ def guardar_datos_en_sheets(titulo_puesto: str, nivel: str, origen: str):
         sh = get_google_sheet_client()
         worksheet = sh.worksheet("Seguimiento Generaciones") 
         timestamp = pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
-        # Guardamos también si fue estandarizado o no
         worksheet.append_row([timestamp, titulo_puesto, nivel, origen]) 
         return True, None
     except Exception as e:
@@ -133,7 +128,7 @@ if not api_key:
     st.error("⚠️ Falta API KEY")
     st.stop()
 
-# Carga de Datos (Diccionario + Catálogo de Puestos)
+# Carga de Datos
 col_load1, col_load2 = st.columns(2)
 with col_load1:
     df_comp, err_comp = get_competencias()
@@ -141,10 +136,9 @@ with col_load1:
     st.success(f"✅ Diccionario: {len(df_comp)} registros", icon="📘")
 
 with col_load2:
-    # Cargamos el catálogo de puestos para estandarizar
     txt_perfiles, err_perf = get_perfiles_estandar()
     if "Error" in str(err_perf): 
-        st.warning(err_perf) # Solo aviso, no detiene la app
+        st.warning(err_perf)
     else:
         st.success(f"✅ Catálogo Oficial conectado", icon="🗂️")
 
@@ -161,7 +155,6 @@ with st.container():
 
 if btn:
     with st.spinner("🔍 Consultando catálogo oficial y generando perfil..."):
-        # Le pasamos a la IA la lista de perfiles (txt_perfiles)
         err_ai, res = run_jobcraft_ai(api_key, t, l, s, df_comp, txt_perfiles)
         
         if err_ai: 
@@ -171,17 +164,28 @@ if btn:
             
             st.divider()
             
-            # Encabezado Inteligente
+            # --- VISUALIZACIÓN MEJORADA (Lógica de Equivalencia) ---
+            
             if res.origen_titulo == "ESTANDARIZADO":
-                st.success(f"✅ **PUESTO OFICIAL ENCONTRADO:** El sistema ajustó tu búsqueda al estándar de la empresa.")
+                st.success(f"✅ **PUESTO VALIDADO:** Se encontró en el catálogo oficial.")
             else:
-                st.info(f"🆕 **NUEVO PUESTO:** No se encontró en catálogo, se creó uno nuevo.")
+                st.info(f"🆕 **NUEVO PUESTO:** Creando perfil desde cero.")
 
+            # TITULO PRINCIPAL (El que pidió el usuario)
             st.markdown(f"<h1 style='text-align: center; color: #1E88E5;'>{res.titulo_puesto}</h1>", unsafe_allow_html=True)
             
-            if res.observacion_ia:
-                st.warning(f"🤖 **Nota de Estandarización:** {res.observacion_ia}")
-            
+            # SUBTITULO DE EQUIVALENCIA (Solo si existe un match oficial diferente)
+            if res.titulo_oficial_match and res.titulo_oficial_match != "N/A" and res.titulo_oficial_match != res.titulo_puesto:
+                 st.markdown(
+                     f"<div style='background-color: #fff3cd; padding: 10px; border-radius: 5px; text-align: center; color: #856404; margin-bottom: 20px;'>"
+                     f"⚠️ <b>Nota de Estandarización:</b> Este puesto equivale oficialmente a <b>'{res.titulo_oficial_match}'</b> en el Catálogo Maestro."
+                     f"</div>", 
+                     unsafe_allow_html=True
+                 )
+            elif res.observacion_ia:
+                # Fallback por si la IA quiere decir algo más
+                 st.caption(f"🤖 Nota: {res.observacion_ia}")
+
             st.markdown(f"<p style='text-align: center;'>Nivel: <b>{res.nivel}</b></p>", unsafe_allow_html=True)
             st.info(f"🎯 **Misión:** {res.mision_puesto}")
             
